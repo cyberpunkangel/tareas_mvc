@@ -50,16 +50,20 @@
 
 @section Scripts{
 
+    <script>
+        const basePath = '@(ViewContext.HttpContext.Request.PathBase.Value ?? "")';
+        const urlTareas = `${basePath}/api/tareas`;
+        const urlPasos = `${basePath}/api/pasos`;
+        const urlArchivos = `${basePath}/api/archivos`;
+        console.log("urlTareas =", urlTareas);
+    </script>
+
     <script src="~/js/utilidades.js" asp-append-version="true"></script>
     <script src="~/js/tareas.js" asp-append-version="true"></script>
     <script src="~/js/pasos.js" asp-append-version="true"></script>
     <script src="~/js/archivos-adjuntos.js" asp-append-version="true"></script>
 
     <script>
-
-        const urlTareas = "/api/tareas";
-        const urlPasos = "/api/pasos";
-        const urlArchivos = '/api/archivos';
 
         const modalEditarTarea = document.getElementById('modal-editar-tarea');
         const modalEditarTareaBootstrap = new bootstrap.Modal(modalEditarTarea);

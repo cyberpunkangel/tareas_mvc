@@ -485,3 +485,11 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+/TareasMVC/appsettings.Development.json
+/TareasMVC/appsettings.json
+/TareasMVC/appsettings.Production.json
+/TareasMVC/__appsettingsDevelopment.json
+/.vscode
+/TareasMVC/.config/dotnet-tools.json
+/TareasMVC/Properties/serviceDependencies.json
+/TareasMVC/Properties/serviceDependencies.local.json

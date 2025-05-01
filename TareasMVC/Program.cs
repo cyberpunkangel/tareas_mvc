@@ -1,94 +1,109 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using TareasMVC;
-using Microsoft.AspNetCore.Mvc.Razor;
-using TareasMVC.Servicios;
 using System.Text.Json.Serialization;
+using TareasMVC;
+using TareasMVC.Servicios;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var politicaUsuariosAutenticados = new AuthorizationPolicyBuilder()
+//  A) Servicios comunes
+var policia = new AuthorizationPolicyBuilder()
     .RequireAuthenticatedUser()
     .Build();
 
-// Add services to the container.
-builder.Services.AddControllersWithViews(opciones =>
-{
-    opciones.Filters.Add(new AuthorizeFilter(politicaUsuariosAutenticados));
-}).AddViewLocalization(LanguageViewLocationExpanderFormat.Suffix)
-.AddDataAnnotationsLocalization(opciones =>
-{
-    opciones.DataAnnotationLocalizerProvider = (_, factoria) =>
-        factoria.Create(typeof(RecursoCompartido));
-}).AddJsonOptions(opciones =>
-{
-    opciones.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-});
+builder.Services.AddControllersWithViews(o =>
+    o.Filters.Add(new AuthorizeFilter(policia)))
+  .AddViewLocalization()
+  .AddDataAnnotationsLocalization()
+  .AddJsonOptions(o => o.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
 
-builder.Services.AddDbContext<ApplicationDbContext>(opciones => 
-    opciones.UseSqlServer("name=DefaultConnection"));
+builder.Services.AddDbContext<ApplicationDbContext>(o =>
+    o.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-builder.Services.AddAuthentication().AddMicrosoftAccount(opciones =>
-{
-    opciones.ClientId = builder.Configuration["MicrosoftClientId"];
-    opciones.ClientSecret = builder.Configuration["MicrosoftSecretId"];
-});
+builder.Services.AddAuthentication()
+  .AddMicrosoftAccount("Microsoft", opts =>
+  {
+      opts.ClientId = builder.Configuration["MicrosoftClientId"];
+      opts.ClientSecret = builder.Configuration["MicrosoftSecretId"];
+      // solo ruta relativa: PathBase la añade en producción
+      opts.CallbackPath = "/signin-microsoft";
+  });
 
-builder.Services.AddIdentity<IdentityUser, IdentityRole>(opciones =>
-{
-    opciones.SignIn.RequireConfirmedAccount = false;
-}).AddEntityFrameworkStores<ApplicationDbContext>()
-.AddDefaultTokenProviders();
+builder.Services.AddIdentity<IdentityUser, IdentityRole>()
+  .AddEntityFrameworkStores<ApplicationDbContext>()
+  .AddDefaultTokenProviders();
 
-builder.Services.PostConfigure<CookieAuthenticationOptions>(IdentityConstants.ApplicationScheme,
-    opciones =>
+// Cookies de Identity
+builder.Services.PostConfigure<CookieAuthenticationOptions>(
+    IdentityConstants.ApplicationScheme, opts =>
     {
-        opciones.LoginPath = "/usuarios/login";
-        opciones.AccessDeniedPath = "/usuarios/login";
+        opts.LoginPath = "/usuarios/login";
+        opts.AccessDeniedPath = "/usuarios/login";
+        opts.Cookie.SameSite = SameSiteMode.Lax;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     });
 
-builder.Services.AddLocalization(opciones =>
-{
-    opciones.ResourcesPath = "Recursos";
-});
+// Cookie de correlación externa (OAuth)
+builder.Services.PostConfigure<CookieAuthenticationOptions>(
+    IdentityConstants.ExternalScheme, opts =>
+    {
+        opts.Cookie.SameSite = SameSiteMode.None;
+        opts.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    });
 
+builder.Services.AddLocalization(o => o.ResourcesPath = "Recursos");
 builder.Services.AddTransient<IServicioUsuarios, ServicioUsuarios>();
 builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddTransient<IAlmacenadorArchivos, AlmacenadorArchivosLocal>();
 
 var app = builder.Build();
 
-
-app.UseRequestLocalization(opciones =>
+// B) Pipeline por ambiente
+if (app.Environment.IsDevelopment())
 {
-    opciones.DefaultRequestCulture = new RequestCulture("es");
-    opciones.SupportedUICultures = Constantes.CulturasUISoportadas
-        .Select(cultura => new CultureInfo(cultura.Value)).ToList();
-});
-
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
+    // Nada especial: no montamos PathBase ni ForwardedHeaders
+    app.UseDeveloperExceptionPage();
+}
+else
 {
+    // Producción: confío en proxy de Nginx y monto el prefijo
     app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
+
+    app.UseForwardedHeaders(new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                        | ForwardedHeaders.XForwardedProto
+    });
+
+    // Aquí se “quita” /tareasmvc y el resto de rutas las procesa tu app
+    app.UsePathBase("/tareasmvc");
 }
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
-app.UseRouting();
+app.UseRequestLocalization(o =>
+{
+    o.DefaultRequestCulture = new RequestCulture("es");
+    o.SupportedUICultures = new[] { "es", "en" }
+        .Select(c => new CultureInfo(c))
+        .ToList();
+});
 
+app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+  name: "default",
+  pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
